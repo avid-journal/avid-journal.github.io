@@ -258,6 +258,12 @@
   .spinner{display:inline-block;width:10px;height:10px;border:1.5px solid #5a5850;border-top-color:var(--maroon-lite);border-radius:50%;animation:spin .7s linear infinite;margin-right:6px;vertical-align:-1px}
   @keyframes spin{to{transform:rotate(360deg)}}
 
+  /* Google Sign-In */
+  #nav-auth { display: flex; align-items: center; gap: 12px; font-family: "Inter", sans-serif; font-size: 14px; }
+  #nav-auth a { color: var(--ink-3); }
+  #nav-auth a:hover { color: var(--maroon); text-decoration: none; }
+  #g_id_signin { display: inline-block; }
+
   /* questions */
   .ql{margin-top:32px}
   .qrow{display:grid;grid-template-columns:90px 1fr;gap:26px;padding:26px 0;border-top:1px solid var(--rule)}
@@ -293,7 +299,7 @@
       <a href="#questions">Research</a>
       <a href="#about">About</a>
     </nav>
-    <a class="nav-cta" href="https://github.com/ayrtonporto/avid-journal" target="_blank" rel="noopener">GitHub ↗</a>
+    <span id="nav-auth"><div id="g_id_signin"></div></span>
   </div>
 </div>
 
@@ -472,20 +478,11 @@
         <p class="pnote">D1 (existence check) runs in the cloud. D2 (triviality) and D3 (proof distance) require local Lean&nbsp;4 install. <a href="https://github.com/ayrtonporto/avid-journal#readme" style="color:var(--maroon-lite)">Learn more.</a></p>
       </div>
 
-      <!-- REAL UPLOAD -->
+      <!-- REAL UPLOAD (auth-gated) -->
       <div id="try-upload">
-        <label class="upload upload-real" for="tex-input">
-          <div class="ic" id="upload-icon">↥</div>
-          <div class="ut" id="upload-text">Select a <b>.tex</b> file</div>
-          <div class="uf" id="upload-fname">theorems parsed block by block</div>
-          <div class="chips">
-            <span class="chip">parse</span>
-            <span class="chip">D1 · Leandex</span>
-            <span class="chip">D1 · arXiv</span>
-            <span class="chip">verdict</span>
-          </div>
-        </label>
-        <input type="file" id="tex-input" accept=".tex" style="display:none">
+        <div id="upload-gate">
+          <div class="upload"><div class="ic">🔒</div><div class="ut">Sign in with <b>Google</b> to analyze</div><div class="uf">your papers are private until published</div></div>
+        </div>
       </div>
     </div>
 
@@ -581,12 +578,82 @@
 </footer>
 
 <!-- AViD Demo JS -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 // ═══════════════════════════════════════════════════════════════════
-// CONFIG — change this when you have the Space URL
+// GOOGLE AUTH
 // ═══════════════════════════════════════════════════════════════════
-const API_URL = "https://ayrtonporto-avid-journal.hf.space/api/analyze";
-// const API_URL = "http://localhost:7860/api/analyze";  // local dev
+const API_BASE = window.AVID_API_BASE || "";
+const DEV_MODE = window.AVID_DEV_MODE === true;
+let AUTH_TOKEN = localStorage.getItem("avid_token") || "";
+let AUTH_USER = null;
+try { AUTH_USER = JSON.parse(localStorage.getItem("avid_user") || "null"); } catch(e) {}
+
+function isLoggedIn() { return DEV_MODE || (!!AUTH_TOKEN && !!AUTH_USER); }
+
+function googleSignIn(response) {
+  fetch(API_BASE + "/api/auth/google", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ credential: response.credential }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    AUTH_TOKEN = data.token;
+    AUTH_USER = data.user;
+    localStorage.setItem("avid_token", AUTH_TOKEN);
+    localStorage.setItem("avid_user", JSON.stringify(AUTH_USER));
+    updateAuthUI();
+  })
+  .catch(err => console.error("Auth failed:", err));
+}
+
+function logout() {
+  fetch(API_BASE + "/api/auth/logout", {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + AUTH_TOKEN },
+  }).finally(() => {
+    AUTH_TOKEN = "";
+    AUTH_USER = null;
+    localStorage.removeItem("avid_token");
+    localStorage.removeItem("avid_user");
+    updateAuthUI();
+  });
+}
+
+function updateAuthUI() {
+  const navAuth = document.getElementById("nav-auth");
+  const uploadGate = document.getElementById("upload-gate");
+  if (!navAuth || !uploadGate) return;
+
+  if (isLoggedIn()) {
+    const userName = DEV_MODE ? "Dev Mode" : AUTH_USER.name;
+    navAuth.innerHTML = '<span style="color:var(--maroon);font-weight:500">' + userName + '</span>' + (DEV_MODE ? '' : ' · <a href="#" onclick="logout();return false">Sign out</a>');
+    uploadGate.innerHTML = '<label class="upload upload-real" for="tex-input"><div class="ic">↥</div><div class="ut">Select a <b>.tex</b> file</div><div class="uf">analyze as ' + userName + '</div><div class="chips"><span class="chip">parse</span><span class="chip">D1 · Leandex</span><span class="chip">D1 · arXiv</span><span class="chip">verdict</span></div></label><input type="file" id="tex-input" accept=".tex" style="display:none">';
+    // Re-bind file input
+    const fi = document.getElementById("tex-input");
+    if (fi) fi.addEventListener("change", onFileSelected);
+  } else {
+    navAuth.innerHTML = '<div id="g_id_signin"></div>';
+    uploadGate.innerHTML = '<div class="upload"><div class="ic">🔒</div><div class="ut">Sign in with <b>Google</b> to analyze</div><div class="uf">your papers are private until published</div></div>';
+    // Init Google button
+    if (window.google && window.AVID_GOOGLE_CLIENT_ID) {
+      google.accounts.id.initialize({
+        client_id: window.AVID_GOOGLE_CLIENT_ID,
+        callback: googleSignIn,
+      });
+      google.accounts.id.renderButton(
+        document.getElementById("g_id_signin"),
+        { theme: "outline", size: "medium", text: "signin_with", shape: "rectangular" }
+      );
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════════════════════
+const API_URL = API_BASE + "/api/analyze";
 
 // ═══════════════════════════════════════════════════════════════════
 // STATUS BADGE MAPPING
@@ -612,46 +679,71 @@ const resultsCards = statusEl("results-cards");
 // ═══════════════════════════════════════════════════════════════════
 // FILE UPLOAD
 // ═══════════════════════════════════════════════════════════════════
-const fileInput = statusEl("tex-input");
-const uploadLabel = document.querySelector(".upload-real");
-const uploadText = statusEl("upload-text");
-const uploadFname = statusEl("upload-fname");
-const uploadIcon = statusEl("upload-icon");
 
-fileInput.addEventListener("change", () => {
-  const file = fileInput.files[0];
+function onFileSelected() {
+  const file = document.getElementById("tex-input").files[0];
   if (!file) return;
-  uploadText.innerHTML = file.name;
-  uploadFname.textContent = (file.size / 1024).toFixed(1) + " KB";
-  uploadIcon.textContent = "✓";
-  uploadLabel.classList.add("has-file");
+  // Update label
+  const ut = document.querySelector("#upload-gate .ut");
+  const uf = document.querySelector("#upload-gate .uf");
+  const ic = document.querySelector("#upload-gate .ic");
+  if (ut) ut.innerHTML = file.name;
+  if (uf) uf.textContent = (file.size / 1024).toFixed(1) + " KB";
+  if (ic) ic.textContent = "✓";
+  document.querySelector(".upload-real").classList.add("has-file");
   analyze(file);
-});
+}
 
 // ═══════════════════════════════════════════════════════════════════
-// API CALL
+// API CALL (streaming)
 // ═══════════════════════════════════════════════════════════════════
 async function analyze(file) {
+  if (!isLoggedIn()) {
+    statusMsg.innerHTML = '<span style="color:var(--maroon-lite)">Please sign in with Google first.</span>';
+    return;
+  }
   resultsArea.style.display = "block";
   resultsCards.innerHTML = "";
   statusTitle.textContent = "avid — analyzing";
   statusFile.textContent = file.name;
-  statusMsg.innerHTML = '<span class="spinner"></span>Parsing LaTeX...';
+  statusMsg.innerHTML = '<span class="spinner"></span>Starting pipeline...';
 
   try {
     const formData = new FormData();
     formData.append("file", file);
 
-    const resp = await fetch(API_URL, { method: "POST", body: formData });
+    const headers = {};
+    if (AUTH_TOKEN) headers["Authorization"] = "Bearer " + AUTH_TOKEN;
+
+    const resp = await fetch(API_URL, { method: "POST", body: formData, headers });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
 
-    const data = await resp.json();
-    // Gradio wraps response: { data: [summary, results] }
-    const payload = data.data || data;
-    const summary = Array.isArray(payload) ? payload[0] : payload.summary || {};
-    const results = Array.isArray(payload) ? payload[1] : payload.results || [];
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
 
-    renderResults(file.name, summary, results);
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop(); // keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const msg = JSON.parse(line);
+          if (msg.type === "progress") {
+            statusMsg.innerHTML = '<span class="spinner"></span>' + msg.msg;
+          } else if (msg.type === "result") {
+            renderResults(file.name, msg.summary, msg.results);
+          } else if (msg.type === "error") {
+            statusTitle.textContent = "avid — error";
+            statusMsg.innerHTML = '<span style="color:var(--maroon-lite)">' + msg.msg + '</span>';
+          }
+        } catch(e) {}
+      }
+    }
   } catch (err) {
     statusTitle.textContent = "avid — error";
     statusMsg.innerHTML = '<span style="color:var(--maroon-lite)">' + err.message + '</span>';
@@ -695,6 +787,9 @@ function renderResults(filename, summary, results) {
   // scroll to results
   resultsArea.scrollIntoView({ behavior: "smooth", block: "start" });
 }
+
+// Init on page load
+updateAuthUI();
 </script>
 
 <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script></body>
