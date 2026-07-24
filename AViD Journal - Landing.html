@@ -253,6 +253,9 @@
   .rbadge.known-informal{border-color:#b08014;color:#e0b830}
   .rbadge.gray{border-color:#5a5850;color:#8a877d}
   .rbadge.error{border-color:#6b2020;color:#d98c95}
+  .result-card .rmatch{font-family:"IBM Plex Mono",monospace;font-size:12px;color:#9a988f;margin:4px 0}
+  .result-card .rmatch code{color:var(--maroon-lite);background:transparent}
+  .result-card details pre{font-family:"IBM Plex Mono",monospace;font-size:11px;background:#1a1916;color:#d9d6cc;padding:12px;overflow-x:auto;margin-top:6px;line-height:1.55}
 
   /* loading spinner */
   .spinner{display:inline-block;width:10px;height:10px;border:1.5px solid #5a5850;border-top-color:var(--maroon-lite);border-radius:50%;animation:spin .7s linear infinite;margin-right:6px;vertical-align:-1px}
@@ -736,7 +739,7 @@ async function analyze(file) {
           if (msg.type === "progress") {
             statusMsg.innerHTML = '<span class="spinner"></span>' + msg.msg;
           } else if (msg.type === "result") {
-            renderResults(file.name, msg.summary, msg.results);
+            renderResults(file.name, msg.summary, msg.results, msg.publication_html);
           } else if (msg.type === "error") {
             statusTitle.textContent = "avid — error";
             statusMsg.innerHTML = '<span style="color:var(--maroon-lite)">' + msg.msg + '</span>';
@@ -754,7 +757,7 @@ async function analyze(file) {
 // ═══════════════════════════════════════════════════════════════════
 // RENDER
 // ═══════════════════════════════════════════════════════════════════
-function renderResults(filename, summary, results) {
+function renderResults(filename, summary, results, pubHtml) {
   const total = results.length;
   const counts = summary.counts || {};
   const countStr = Object.entries(counts)
@@ -773,16 +776,41 @@ function renderResults(filename, summary, results) {
     const title = r.title || r.label || ("Theorem " + (i + 1));
     const labelTag = r.label ? '<span class="rlabel">' + r.label + '</span>' : "";
 
+    // Show matches if any
+    let matchHtml = "";
+    if (r.match_C_F && Object.keys(r.match_C_F).length > 0) {
+      matchHtml += '<div class="rmatch">📚 Mathlib: <code>' + (r.match_C_F.lean_name || "match") + '</code></div>';
+    }
+    if (r.match_C_I && Object.keys(r.match_C_I).length > 0) {
+      matchHtml += '<div class="rmatch">📄 arXiv: ' + (r.match_C_I.title || "match") + '</div>';
+    }
+
+    // Show Lean code if available
+    let leanHtml = "";
+    if (r.lean_statement) {
+      leanHtml = '<details style="margin-top:8px"><summary style="color:var(--maroon-lite);cursor:pointer;font-family:Inter,sans-serif;font-size:13px">📥 View formalized Lean code</summary><pre style="background:#1a1916;color:#d9d6cc;padding:12px;font-size:11px;overflow-x:auto;margin-top:6px">' + r.lean_statement + '</pre></details>';
+    }
+
     return '<div class="result-card">' +
       '<div class="rhead">' +
         '<span class="rtitle">' + title + '</span>' +
         labelTag +
         '<span class="rbadge ' + cssClass + '">' + label + '</span>' +
       '</div>' +
+      matchHtml +
       (preview ? '<div class="rpreview">' + preview + '</div>' : "") +
       (detail ? '<div class="rdetail">' + detail + '</div>' : "") +
+      leanHtml +
     '</div>';
   }).join("");
+
+  // Show publication section if available
+  if (pubHtml) {
+    const pubDiv = document.createElement("div");
+    pubDiv.innerHTML = pubHtml;
+    pubDiv.style.marginTop = "28px";
+    resultsCards.appendChild(pubDiv);
+  }
 
   // scroll to results
   resultsArea.scrollIntoView({ behavior: "smooth", block: "start" });
