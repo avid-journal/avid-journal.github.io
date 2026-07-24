@@ -767,7 +767,8 @@ function renderResults(filename, summary, results, pubHtml) {
   statusTitle.textContent = "avid — verdict";
   statusFile.textContent = filename;
   statusMsg.innerHTML =
-    '<span class="val">' + total + " theorems</span> — " + countStr;
+    '<span class="val">' + total + " theorems</span> — " + countStr +
+    ' <button onclick="downloadLean()" style="font-family:Inter,sans-serif;font-size:12px;padding:4px 10px;background:transparent;color:var(--maroon-lite);border:1px solid var(--maroon-lite);cursor:pointer;margin-left:12px">📥 Download .lean</button>';
 
   resultsCards.innerHTML = results.map((r, i) => {
     const [cssClass, label] = STATUS_BADGES[r.veredicto] || ["error", r.veredicto];
@@ -818,6 +819,60 @@ function renderResults(filename, summary, results, pubHtml) {
 
 // Init on page load
 updateAuthUI();
+
+// ═══════════════════════════════════════════════════════════════════
+// PUBLICATION
+// ═══════════════════════════════════════════════════════════════════
+async function submitPublication(filename) {
+  const author = document.getElementById("pub-author")?.value?.trim();
+  const email = document.getElementById("pub-email")?.value?.trim();
+  const llm = document.getElementById("pub-llm")?.value?.trim();
+  const agreed = document.getElementById("pub-agree")?.checked;
+  const resultEl = document.getElementById("pub-result");
+
+  if (!author) { resultEl.innerHTML = '<span style="color:var(--maroon-lite)">Author name is required.</span>'; return; }
+  if (!llm) { resultEl.innerHTML = '<span style="color:var(--maroon-lite)">LLM model(s) are required.</span>'; return; }
+  if (!agreed) { resultEl.innerHTML = '<span style="color:var(--maroon-lite)">You must agree to the Terms of Publication.</span>'; return; }
+
+  resultEl.innerHTML = '<span class="spinner"></span> Submitting...';
+
+  try {
+    const resp = await fetch(API_BASE + "/api/publish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ author, email, llm, filename }),
+    });
+    const data = await resp.json();
+    if (data.status === "ok") {
+      resultEl.innerHTML = '<span style="color:var(--maroon)">&#x2705; Submitted! ID: <code>' + data.id + '</code>. Check your email for confirmation.</span>';
+      // Disable the form
+      document.querySelectorAll("#pub-author, #pub-email, #pub-llm, #pub-agree, .pub-section button").forEach(el => el.disabled = true);
+    } else {
+      resultEl.innerHTML = '<span style="color:var(--maroon-lite)">' + (data.detail || "Error") + '</span>';
+    }
+  } catch(e) {
+    resultEl.innerHTML = '<span style="color:var(--maroon-lite)">Network error. Please try again.</span>';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// LEAN DOWNLOAD
+// ═══════════════════════════════════════════════════════════════════
+function downloadLean() {
+  const blocks = [];
+  document.querySelectorAll(".result-card pre").forEach(pre => {
+    blocks.push(pre.textContent);
+  });
+  if (!blocks.length) return;
+  const content = "import Mathlib\n\n" + blocks.join("\n\n") + "\n";
+  const blob = new Blob([content], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "avid_formalized.lean";
+  a.click();
+  URL.revokeObjectURL(url);
+}
 </script>
 
 <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script></body>
