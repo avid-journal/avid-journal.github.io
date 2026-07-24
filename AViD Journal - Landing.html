@@ -734,17 +734,22 @@ async function analyze(file) {
 
       for (const line of lines) {
         if (!line.trim()) continue;
+        let msg;
         try {
-          const msg = JSON.parse(line);
-          if (msg.type === "progress") {
-            statusMsg.innerHTML = '<span class="spinner"></span>' + msg.msg;
-          } else if (msg.type === "result") {
-            renderResults(file.name, msg.summary, msg.results, msg.publication_html);
-          } else if (msg.type === "error") {
-            statusTitle.textContent = "avid — error";
-            statusMsg.innerHTML = '<span style="color:var(--maroon-lite)">' + msg.msg + '</span>';
-          }
-        } catch(e) {}
+          // SSE format: "data: {...}"
+          const json = line.startsWith("data: ") ? line.slice(6) : line;
+          msg = JSON.parse(json);
+        } catch(e) { continue; }
+        if (msg.type === "progress") {
+          statusMsg.innerHTML = '<span class="spinner"></span>' + msg.msg;
+        } else if (msg.type === "result") {
+          renderResults(file.name, msg.summary, msg.results, msg.publication_html);
+        } else if (msg.type === "done") {
+          statusMsg.innerHTML = '<span class="val">' + msg.msg + '</span>';
+        } else if (msg.type === "error") {
+          statusTitle.textContent = "avid — error";
+          statusMsg.innerHTML = '<span style="color:var(--maroon-lite)">' + msg.msg + '</span>';
+        }
       }
     }
   } catch (err) {
